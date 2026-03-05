@@ -2,10 +2,13 @@ import Idb from "./lib/idb.js";
 import convertToBlob from './utils/blob.js';
 
 class Cachel {
+    
     #idb;
+
     constructor(name = 'idb'){
         this.#idb = new Idb(name);
     }
+
     async load(url){
         if(typeof url !== 'string') return;
         url = url.trim();
@@ -24,6 +27,7 @@ class Cachel {
             return null;
         }
     }
+
     async get(url){
         if(typeof url !== 'string') return;
         url = url.trim();
@@ -32,21 +36,26 @@ class Cachel {
         if(!blob) return null;
         return URL.createObjectURL(blob);
     }
+
     async keys() {
         return this.#idb.keys();
     }
+
     async delete() {
         return this.#idb.delete();
     }
+
     async remove(url){
         if(typeof url !== 'string') return;
         url = url.trim();
         if(!url) return;
         return this.#idb.remove(url);
     }
+
     async clear(){
         return this.#idb.clear();
     }
+
 }
 
 export default Cachel;
