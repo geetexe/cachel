@@ -3,11 +3,14 @@ import { convertToBlob, chunkify } from './utils/index.js';
 
 class Cachel {
     
+    static #instances = {};
     #idb;
     #defaultChunkSize = 8;
 
     constructor(name = 'idb'){
+        if(Cachel.#instances[name]) return Cachel.#instances[name];
         this.#idb = new Idb(name);
+        Cachel.#instances[name] = this;
     }
 
     async load(url){

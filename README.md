@@ -15,7 +15,9 @@ Fetch remote assets once, serve them forever from local cache. Works with any fr
 - Batch cache multiple assets with controlled concurrency via `loadMany`
 - Serve cached assets as object URLs, works fully offline
 - Skips network requests for already cached assets
+- Singleton per database name
 - Supports images, videos, audio and fonts
+- Failed assets in batch processing are bypassed, successful ones are always cached
 - No service worker required
 - Zero dependencies
 
@@ -52,6 +54,8 @@ img.src = url; // works offline
 
 Creates a new cachel instance. `name` is used as the IndexedDB database name, prefixed internally as `cachel:<name>`.
 
+Multiple calls with the same name return the same instance, no duplicate IndexedDB connections.
+
 ```javascript
 const cache = new Cachel('my-app'); // opens "cachel:my-app" in IndexedDB
 ```
@@ -70,7 +74,7 @@ await cache.load('https://example.com/hero.jpg');
 
 Supported content types: `image/*`, `video/*`, `audio/*`, `font/*`
 
-Throws if the fetch fails or the content type is not supported.
+Throws if the resource cannot be fetched or the content type is not supported.
 
 ---
 
@@ -94,7 +98,7 @@ console.log(status);
 // }
 ```
 
-`chunkSize` controls how many assets are fetched in parallel per round. Defaults to `8`, max is `8`. Assets already cached are skipped automatically.
+`chunkSize` controls how many assets are fetched in parallel per round. Defaults to `8`, clamped to a maximum of `8`. Assets already cached are skipped automatically.
 
 ```javascript
 await cache.loadMany(urls, 4); // 4 parallel fetches per round
