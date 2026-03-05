@@ -2,6 +2,7 @@
   "name": "cachel",
   "version": "1.0.0",
   "main": "cachel.js",
+  "files": [ "cachel.js", "lib/", "utils/", "README.md", "LICENSE" ],
   "scripts": {
     "dev": "live-server"
   },
@@ -10,6 +11,7 @@
     "name": "Geet Trivedi",
     "url": "https://www.geettrivedi.com"
   },
+  "type": "module",
   "license": "MIT",
   "description": "Offline-first asset caching via IndexedDB",
   "devDependencies": {
