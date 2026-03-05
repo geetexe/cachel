@@ -5,7 +5,6 @@ Offline-first asset caching for the browser, powered by IndexedDB.
 Fetch remote assets once, serve them forever from local cache. Works with any framework or none at all.
 
 ![npm](https://img.shields.io/npm/v/cachel)
-![bundle size](https://img.shields.io/badge/gzip-~1kB-brightgreen)
 ![license](https://img.shields.io/npm/l/cachel)
 
 ---
@@ -13,12 +12,12 @@ Fetch remote assets once, serve them forever from local cache. Works with any fr
 ## Features
 
 - Fetch and cache remote assets in IndexedDB with one call
+- Batch cache multiple assets with controlled concurrency via `loadMany`
 - Serve cached assets as object URLs, works fully offline
 - Skips network requests for already cached assets
 - Supports images, videos, audio and fonts
 - No service worker required
 - Zero dependencies
-- ~1 kB gzipped
 
 ---
 
@@ -72,6 +71,34 @@ await cache.load('https://example.com/hero.jpg');
 Supported content types: `image/*`, `video/*`, `audio/*`, `font/*`
 
 Throws if the fetch fails or the content type is not supported.
+
+---
+
+### `cache.loadMany(urls, chunkSize?)`
+
+Fetches and caches multiple assets in controlled parallel chunks. Returns a status object with results, success count, failed count, and time elapsed in milliseconds.
+
+```javascript
+const status = await cache.loadMany([
+    'https://example.com/logo.png',
+    'https://example.com/hero.jpg',
+    'https://example.com/font.woff2'
+]);
+
+console.log(status);
+// {
+//   results: [...],  // raw Promise.allSettled results
+//   success: 2,
+//   failed: 1,
+//   timeElapsed: 1240  // in milliseconds
+// }
+```
+
+`chunkSize` controls how many assets are fetched in parallel per round. Defaults to `8`, max is `8`. Assets already cached are skipped automatically.
+
+```javascript
+await cache.loadMany(urls, 4); // 4 parallel fetches per round
+```
 
 ---
 

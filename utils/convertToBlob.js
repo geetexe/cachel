@@ -1,3 +1,4 @@
+const allowedContentTypes = ['image/', 'video/', 'audio/', 'font/'];
 const convertToBlob = async url => {
     try{
         const response = await fetch(url);
@@ -7,7 +8,6 @@ const convertToBlob = async url => {
         }
 
         const contentType = response.headers.get('content-type');
-        const allowedContentTypes = ['image/', 'video/', 'audio/', 'font/'];
         const isContentTypeAllowed = allowedContentTypes.some(type => contentType.startsWith(type));
 
         if(!isContentTypeAllowed){

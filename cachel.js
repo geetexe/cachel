@@ -1,9 +1,10 @@
 import Idb from "./lib/idb.js";
-import convertToBlob from './utils/blob.js';
+import { convertToBlob, chunkify } from './utils/index.js';
 
 class Cachel {
     
     #idb;
+    #defaultChunkSize = 8;
 
     constructor(name = 'idb'){
         this.#idb = new Idb(name);
@@ -54,6 +55,30 @@ class Cachel {
 
     async clear(){
         return this.#idb.clear();
+    }
+
+    async loadMany(urls, chunkSize = this.#defaultChunkSize){
+        if(!(Array.isArray(urls) && urls.length)) return;
+        if(chunkSize > this.#defaultChunkSize){
+            console.warn(`cachel: supplied chunkSize is greater than max permissible chunk size; clamping the size to ${this.#defaultChunkSize}`);
+        }
+        chunkSize = Math.min(Math.max(1, chunkSize), this.#defaultChunkSize);
+        const chunks = chunkify(urls, chunkSize);
+        const results = [];
+        const startTime = performance.now();
+        for(const chunk of chunks){
+            const chunkResults = await Promise.allSettled(chunk.map(url => this.load(url)));
+            results.push(...chunkResults);
+        }
+        const timeElapsed = (performance.now() - startTime);
+        const success = results.filter(result => result.status === 'fulfilled').length;
+        const status = {
+            results,
+            success,
+            failed: results.length - success,
+            timeElapsed
+        }
+        return status;
     }
 
 }
