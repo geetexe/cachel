@@ -5,6 +5,7 @@ Offline-first asset caching for the browser, powered by IndexedDB.
 Fetch remote assets once, serve them forever from local cache. Works with any framework or none at all.
 
 ![npm](https://img.shields.io/npm/v/cachel)
+![bundle size](https://img.shields.io/badge/gzip-1.78kB-brightgreen)
 ![license](https://img.shields.io/npm/l/cachel)
 
 ---
