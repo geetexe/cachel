@@ -5,7 +5,6 @@ Offline-first asset caching for the browser, powered by IndexedDB.
 Fetch remote assets once, serve them forever from local cache. Works with any framework or none at all.
 
 ![npm](https://img.shields.io/npm/v/cachel)
-![bundle size](https://img.shields.io/badge/gzip-1.37kB-brightgreen)
 ![license](https://img.shields.io/npm/l/cachel)
 
 ---
@@ -16,6 +15,8 @@ Fetch remote assets once, serve them forever from local cache. Works with any fr
 - Batch cache multiple assets with controlled concurrency via `loadMany`
 - Serve cached assets as object URLs, works fully offline
 - Skips network requests for already cached assets
+- Attach custom metadata to any cached asset
+- Observable cache via `onChange`, react to any mutation
 - Singleton per database name
 - Supports images, videos, audio and fonts
 - Failed assets in batch processing are bypassed, successful ones are always cached
@@ -42,9 +43,9 @@ const cache = new Cachel('my-app');
 // fetch and cache a remote asset
 await cache.load('https://example.com/logo.png');
 
-// retrieve cached asset as an object URL
-const url = await cache.get('https://example.com/logo.png');
-img.src = url; // works offline
+// retrieve cached asset
+const { path, meta } = await cache.get('https://example.com/logo.png');
+img.src = path; // works offline
 ```
 
 ---
@@ -65,17 +66,25 @@ Defaults to `'idb'` if no name is provided.
 
 ---
 
-### `cache.load(url)`
+### `cache.load(url, options?)`
 
 Fetches a remote asset and stores it in IndexedDB as a blob. If the asset is already cached, the network request is skipped.
 
 ```javascript
 await cache.load('https://example.com/hero.jpg');
+
+// with optional metadata
+await cache.load('https://example.com/hero.jpg', { meta: { category: 'nature', tags: ['landscape'] } });
 ```
 
 Supported content types: `image/*`, `video/*`, `audio/*`, `font/*`
 
 Throws if the resource cannot be fetched or the content type is not supported.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `meta` | `object` | `null` | Any metadata to associate with the cached asset |
+| `silent` | `boolean` | `false` | Suppress `onChange` notifications |
 
 ---
 
@@ -109,12 +118,64 @@ await cache.loadMany(urls, 4); // 4 parallel fetches per round
 
 ### `cache.get(url)`
 
-Retrieves a cached asset and returns it as an object URL. Returns `null` if not found.
+Retrieves a cached asset. Returns `null` if not found.
 
 ```javascript
-const url = await cache.get('https://example.com/hero.jpg');
-if (url) img.src = url;
+const record = await cache.get('https://example.com/hero.jpg');
+if (record) {
+    img.src = record.path;       // object URL, ready to use
+    console.log(record.meta);    // metadata attached on load
+    console.log(record.url);     // original URL
+}
 ```
+
+---
+
+### `cache.updateRecord(url, meta)`
+
+Updates the metadata of an already cached asset without re-fetching the blob. Merges with existing metadata.
+
+```javascript
+await cache.updateRecord('https://example.com/hero.jpg', { category: 'updated' });
+```
+
+---
+
+### `cache.onChange(callback)`
+
+Registers a listener that fires whenever the cache is mutated. Returns an unsubscribe function.
+
+```javascript
+const unsubscribe = cache.onChange(({ version, timestamp }) => {
+    console.log(`cache updated, version ${version} at ${timestamp}`);
+});
+
+// cleanup
+unsubscribe();
+```
+
+Fires on: `load`, `loadMany`, `remove`, `clear`, `updateRecord`.
+
+---
+
+### `cache.checkStorage()`
+
+Returns storage usage information for the current origin.
+
+```javascript
+const info = await cache.checkStorage();
+console.log(info);
+// {
+//   quota: 123456789,       // total available bytes
+//   usage: 12345,           // total used bytes across all storage types
+//   free: 123444444,        // available bytes
+//   percentUsed: 0.01,      // percentage used
+//   percentFree: 99.99,     // percentage free
+//   indexedDBUsage: 8192    // bytes used by IndexedDB specifically (Chrome only)
+// }
+```
+
+Note: `indexedDBUsage` is Chrome-only via the non-standard `usageDetails` API. Returns `0` in other browsers.
 
 ---
 
@@ -167,17 +228,18 @@ await cache.delete();
 @Directive({ selector: '[cachel]' })
 export class CachelDirective implements OnInit, OnDestroy {
   @Input() cachel: string;
-  private objectUrl: string;
+  private path: string;
   private cache = new Cachel('my-app');
 
   async ngOnInit() {
     await this.cache.load(this.cachel);
-    this.objectUrl = await this.cache.get(this.cachel);
-    this.el.nativeElement.src = this.objectUrl;
+    const record = await this.cache.get(this.cachel);
+    if (record) this.el.nativeElement.src = record.path;
+    this.path = record?.path;
   }
 
   ngOnDestroy() {
-    if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
+    if (this.path) URL.revokeObjectURL(this.path);
   }
 
   constructor(private el: ElementRef) {}
@@ -194,19 +256,19 @@ export class CachelDirective implements OnInit, OnDestroy {
 const cache = new Cachel('my-app');
 
 export function useCachedAsset(url) {
-  const [src, setSrc] = useState(null);
+  const [record, setRecord] = useState(null);
 
   useEffect(() => {
-    cache.load(url).then(() => cache.get(url)).then(setSrc);
-    return () => { if (src) URL.revokeObjectURL(src); };
+    cache.load(url).then(() => cache.get(url)).then(setRecord);
+    return () => { if (record?.path) URL.revokeObjectURL(record.path); };
   }, [url]);
 
-  return src;
+  return record;
 }
 
 // usage
-const src = useCachedAsset('https://example.com/logo.png');
-<img src={src} />
+const record = useCachedAsset('https://example.com/logo.png');
+<img src={record?.path} />
 ```
 
 ---

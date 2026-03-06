@@ -6,6 +6,8 @@ class Cachel {
     static #instances = {};
     #idb;
     #defaultChunkSize = 8;
+    #version = 0;
+    #listeners = new Set();
 
     constructor(name = 'idb'){
         if(Cachel.#instances[name]) return Cachel.#instances[name];
@@ -13,7 +15,7 @@ class Cachel {
         Cachel.#instances[name] = this;
     }
 
-    async load(url){
+    async load(url, { silent = false, meta = null } = {}){
         if(typeof url !== 'string') return;
         url = url.trim();
         if(!url) return;
@@ -23,7 +25,8 @@ class Cachel {
             throw new Error(`cachel: caching failed for the requested resource - ${url}`);
         }
         try{
-            const result = await this.#idb.set(url, blob);
+            const result = await this.#idb.set(url, blob, meta);
+            !silent && this.#bump();
             return result;
         }
         catch(err){
@@ -36,9 +39,13 @@ class Cachel {
         if(typeof url !== 'string') return;
         url = url.trim();
         if(!url) return;
-        const blob = await this.#idb.get(url);
-        if(!blob) return null;
-        return URL.createObjectURL(blob);
+        const record = await this.#idb.get(url);
+        if(!record) return null;
+        const { blob, ...rest } = record;
+        return {
+            ...rest,
+            path: URL.createObjectURL(blob)
+        };
     }
 
     async keys() {
@@ -53,11 +60,27 @@ class Cachel {
         if(typeof url !== 'string') return;
         url = url.trim();
         if(!url) return;
-        return this.#idb.remove(url);
+        let result = null;
+        try{
+            result = await this.#idb.remove(url);
+            this.#bump();
+        } catch(err){
+            console.error(`cachel: failed to remove ${url} - ${err.message}`);
+        } finally{
+            return result;
+        }
     }
 
     async clear(){
-        return this.#idb.clear();
+        let result = null;
+        try{
+            result = await this.#idb.clear();
+            this.#bump();
+        } catch(err){
+            console.error(`cachel: failed to clear - ${err.message}`);
+        } finally {
+            return result;
+        }
     }
 
     async loadMany(urls, chunkSize = this.#defaultChunkSize){
@@ -70,7 +93,7 @@ class Cachel {
         const results = [];
         const startTime = performance.now();
         for(const chunk of chunks){
-            const chunkResults = await Promise.allSettled(chunk.map(url => this.load(url)));
+            const chunkResults = await Promise.allSettled(chunk.map(url => this.load(url, { silent: true })));
             results.push(...chunkResults);
         }
         const timeElapsed = (performance.now() - startTime);
@@ -81,7 +104,65 @@ class Cachel {
             failed: results.length - success,
             timeElapsed
         }
+        success && this.#bump();
         return status;
+    }
+
+    #bump() {
+        this.#version++;
+        this.#notify();
+    }
+
+    onChange(callback){
+        this.#listeners.add(callback);
+        return () => this.#listeners.delete(callback);
+    }
+
+    #notify(){
+        this.#listeners.forEach(callback => callback({
+            version: this.#version, 
+            timestamp: Date.now()
+        }));
+    }
+
+    async updateRecord(url, meta){
+        if(typeof url !== 'string') return;
+        url = url.trim();
+        if(!url) return;
+        let result = null;
+        try{
+            result = await this.#idb.update(url, meta);
+            this.#bump();
+        } catch(err){
+            console.error(`cachel: failed to update ${url} - ${err.message}`);
+        } finally {
+            return result;
+        }
+    }
+
+    async checkStorage(){
+        const { storage } = window.navigator || {};
+        if(!storage) {
+            console.error(`cachel: no storage found.`);
+            return;
+        }
+        let result = null;
+        try{
+            const { quota, usage, usageDetails } = await storage.estimate();
+            const percentUsed = +((usage/quota)*100).toFixed(2);
+            result = {
+                quota,
+                usage,
+                free: quota - usage,
+                percentUsed,
+                percentFree: 100 - percentUsed,
+                indexedDBUsage: usageDetails?.indexedDB || 0
+            }
+        } catch(err){
+            console.error(`cachel: failed to get the storage information - ${err.message}`);
+        } finally {
+            return result;
+        }
     }
 
 }
