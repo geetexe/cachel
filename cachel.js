@@ -48,11 +48,11 @@ class Cachel {
         };
     }
 
-    async keys() {
+    keys() {
         return this.#idb.keys();
     }
 
-    async delete() {
+    delete() {
         return this.#idb.delete();
     }
 
