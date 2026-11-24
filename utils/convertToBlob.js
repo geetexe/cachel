@@ -1,20 +1,10 @@
-const allowedContentTypes = ['image/', 'video/', 'audio/', 'font/'];
+import fetchBlob from './fetchBlob.js';
+
+// Kept for backwards compatibility: logs and returns null on any failure.
+// New code should use fetchBlob, which throws errors carrying a `code`.
 const convertToBlob = async url => {
     try{
-        const response = await fetch(url);
-
-        if(!response.ok){
-            throw new Error(`cachel: failed to fetch [${url}] - ${response.status} | ${response.statusText}`);
-        }
-
-        const contentType = response.headers.get('content-type');
-        const isContentTypeAllowed = allowedContentTypes.some(type => contentType.startsWith(type));
-
-        if(!isContentTypeAllowed){
-            throw new Error(`cachel: content type ${contentType} is not supported for ${url}`);
-        }
-
-        return await response.blob();
+        return await fetchBlob(url);
     }
     catch(err){
         console.error(err.message);
