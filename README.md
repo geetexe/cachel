@@ -5,7 +5,7 @@ Offline-first asset caching for the browser, powered by IndexedDB.
 Fetch remote assets once, serve them forever from local cache. Works with any framework or none at all.
 
 ![npm](https://img.shields.io/npm/v/cachel)
-![bundle size](https://img.shields.io/badge/gzip-1.78kB-brightgreen)
+![bundle size](https://img.shields.io/badge/gzip-2.83kB-brightgreen)
 ![license](https://img.shields.io/npm/l/cachel)
 
 ---
@@ -17,6 +17,10 @@ Fetch remote assets once, serve them forever from local cache. Works with any fr
 - Serve cached assets as object URLs, works fully offline
 - Skips network requests for already cached assets
 - Attach custom metadata to any cached asset
+- Store blobs you already have (generated, decrypted, imported) under any key with `set`
+- Atomic, ordered multi-step writes with `batch`: all or nothing
+- Read everything in one transaction with `entries`, or raw blobs with `getBlob`
+- Fetch failures carry a `code` (`fetch-failed`, `http-error`, `unsupported-type`)
 - Observable cache via `onChange`, react to any mutation
 - Singleton per database name
 - Supports images, videos, audio and fonts
@@ -87,6 +91,26 @@ Throws if the resource cannot be fetched or the content type is not supported.
 | `meta` | `object` | `null` | Any metadata to associate with the cached asset |
 | `silent` | `boolean` | `false` | Suppress `onChange` notifications |
 
+The thrown error says why it failed through `error.code`, with the underlying error in `error.cause`:
+
+| `error.code` | Meaning | Extra fields |
+|---|---|---|
+| `'fetch-failed'` | Network error, CORS block, invalid URL | |
+| `'http-error'` | The server answered with a non-2xx status | `error.status` |
+| `'unsupported-type'` | `content-type` missing or not a supported media type | `error.contentType` |
+
+```javascript
+import Cachel, { FETCH_ERROR_CODES } from 'cachel';
+
+try {
+    await cache.load(url);
+} catch (err) {
+    if (err.code === FETCH_ERROR_CODES.HTTP_ERROR && err.status === 404) {
+        // the asset no longer exists
+    }
+}
+```
+
 ---
 
 ### `cache.loadMany(urls, chunkSize?)`
@@ -127,8 +151,103 @@ if (record) {
     img.src = record.path;       // object URL, ready to use
     console.log(record.meta);    // metadata attached on load
     console.log(record.url);     // original URL
+    console.log(record.size);    // size in bytes
+    console.log(record.type);    // MIME type, e.g. 'image/jpeg'
 }
 ```
+
+Every call creates a new object URL. Call `URL.revokeObjectURL(record.path)` once you no longer need it, or use `getBlob()` to manage URLs yourself.
+
+---
+
+### `cache.getBlob(key)`
+
+Like `get()`, but returns the `Blob` itself and creates no object URL. Returns `null` if not found. Useful for processing the bytes (hashing, encrypting, zipping, uploading) and in service workers, where `URL.createObjectURL` is unavailable.
+
+```javascript
+const record = await cache.getBlob('https://example.com/hero.jpg');
+// { url, meta, blob, size, type }
+const bytes = await record.blob.arrayBuffer();
+```
+
+---
+
+### `cache.has(key)`
+
+Returns `true` if the key is cached, without reading the blob.
+
+```javascript
+if (!(await cache.has(url))) showSaveButton();
+```
+
+---
+
+### `cache.set(key, blob, options?)`
+
+Stores a `Blob` you already have, without fetching anything. The key can be any non-empty string, not only a URL. Unlike `load()`, it **overwrites** an existing entry with the same key. Returns the key.
+
+```javascript
+// a generated or transformed asset
+const thumb = await createThumbnail(original);
+await cache.set('thumb:hero', thumb, { meta: { width: 320 } });
+
+// restoring an exported backup without hitting the network
+await cache.set(entry.url, entry.blob, { meta: entry.meta });
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `meta` | `object` | `null` | Any metadata to associate with the entry |
+| `silent` | `boolean` | `false` | Suppress `onChange` notifications |
+
+Throws a `TypeError` if `blob` is not a `Blob`.
+
+---
+
+### `cache.entries(options?)`
+
+Returns every cached entry in a single IndexedDB transaction, without creating object URLs. Much faster than `keys()` followed by `get()` for each key.
+
+```javascript
+const all = await cache.entries();
+// [{ url, meta, size, type }, ...]
+
+const totalBytes = all.reduce((sum, entry) => sum + entry.size, 0);
+
+// include the blobs, e.g. to export everything
+const withBlobs = await cache.entries({ blobs: true });
+// [{ url, meta, size, type, blob }, ...]
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `blobs` | `boolean` | `false` | Include each entry's `Blob` |
+
+---
+
+### `cache.batch(operations, options?)`
+
+Applies several writes **atomically and in order** in one transaction: either all of them are saved or none are. Use it whenever a crash between two writes would leave the cache inconsistent, for example replacing an entry under a new key.
+
+```javascript
+// move an asset to a new key in one step
+const { blob, meta } = await cache.getBlob(oldKey);
+await cache.batch([
+    { op: 'set', key: newKey, blob, meta },
+    { op: 'remove', key: oldKey },
+]);
+
+// tag many entries at once
+await cache.batch(keys.map(key => ({ op: 'update', key, meta: { album: 'trip' } })));
+```
+
+| Operation | Fields | Effect |
+|---|---|---|
+| `set` | `key`, `blob`, `meta?` | Store a `Blob` (overwrites) |
+| `update` | `key`, `meta` | Merge `meta` into an existing entry. Fails the batch if the key is not cached |
+| `remove` | `key` | Delete an entry (no error if missing) |
+
+Resolves with the number of operations applied, or `null` if the batch failed and nothing was written. Throws a `TypeError` for malformed operations before touching the database. Fires `onChange` once per batch unless `{ silent: true }` is passed.
 
 ---
 
@@ -155,7 +274,7 @@ const unsubscribe = cache.onChange(({ version, timestamp }) => {
 unsubscribe();
 ```
 
-Fires on: `load`, `loadMany`, `remove`, `clear`, `updateRecord`.
+Fires on: `load`, `loadMany`, `set`, `batch`, `remove`, `clear`, `updateRecord`.
 
 ---
 
@@ -286,7 +405,7 @@ cachel uses IndexedDB which is supported in all modern browsers since 2015.
 | Edge | 79+ |
 | iOS Safari | 10+ |
 
-No service worker required. Works in any browser context.
+No service worker required. Works in any browser context, including service workers and web workers. In workers, use `getBlob()` or `entries()` instead of `get()`, since `URL.createObjectURL` is not available there.
 
 ---
 
